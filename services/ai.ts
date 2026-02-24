@@ -2,12 +2,11 @@ import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
 const getAI = () => {
   const primaryKey = process.env.GEMINI_API_KEY;
-  const secondaryKey = process.env.GEMINI_API_KEY_SECONDARY;
+  const backupKey = import.meta.env.VITE_GEMINI_API_KEY_BACKUP;
   
-  if (!primaryKey && !secondaryKey) throw new Error("No Gemini API keys configured");
+  if (!primaryKey && !backupKey) throw new Error("No Gemini API keys configured");
   
-  // Simple rotation or fallback logic
-  const apiKey = primaryKey || secondaryKey;
+  const apiKey = primaryKey || backupKey;
   return new GoogleGenAI({ apiKey: apiKey! });
 };
 
@@ -24,10 +23,13 @@ export async function getGeminiResponse(prompt: string, modelName: string = "gem
     });
     return response;
   } catch (error) {
-    const secondaryKey = process.env.GEMINI_API_KEY_SECONDARY;
-    if (secondaryKey && process.env.GEMINI_API_KEY !== secondaryKey) {
-      console.warn("Primary Gemini key failed, trying secondary key...");
-      const ai = new GoogleGenAI({ apiKey: secondaryKey });
+    const backupKey = import.meta.env.VITE_GEMINI_API_KEY_BACKUP;
+    const primaryKey = process.env.GEMINI_API_KEY;
+
+    // If primary failed and we have a backup, try the backup
+    if (backupKey && primaryKey !== backupKey) {
+      console.warn("Primary Gemini failed, trying backup Gemini key...");
+      const ai = new GoogleGenAI({ apiKey: backupKey });
       return await ai.models.generateContent({
         model: modelName,
         contents: prompt,

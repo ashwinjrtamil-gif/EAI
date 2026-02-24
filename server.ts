@@ -23,19 +23,34 @@ async function startServer() {
   const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
   // In-memory state for sessions
-  const sessions: Record<string, { content: string }> = {};
+  const sessions: Record<string, { content: string, messages: any[] }> = {};
 
   io.on("connection", (socket) => {
     socket.on("join-session", (sessionId) => {
       socket.join(sessionId);
       if (sessions[sessionId]) {
         socket.emit("canvas-update", sessions[sessionId].content);
+        socket.emit("chat-history", sessions[sessionId].messages || []);
       }
     });
 
     socket.on("update-canvas", ({ sessionId, content }) => {
-      sessions[sessionId] = { content };
+      if (!sessions[sessionId]) sessions[sessionId] = { content: "", messages: [] };
+      sessions[sessionId].content = content;
       socket.to(sessionId).emit("canvas-update", content);
+    });
+
+    socket.on("new-message", ({ sessionId, message }) => {
+      if (!sessions[sessionId]) sessions[sessionId] = { content: "", messages: [] };
+      sessions[sessionId].messages.push(message);
+      socket.to(sessionId).emit("chat-message", message);
+    });
+
+    socket.on("update-last-message", ({ sessionId, message }) => {
+      if (sessions[sessionId] && sessions[sessionId].messages && sessions[sessionId].messages.length > 0) {
+        sessions[sessionId].messages[sessions[sessionId].messages.length - 1] = message;
+        socket.to(sessionId).emit("chat-history", sessions[sessionId].messages);
+      }
     });
   });
 

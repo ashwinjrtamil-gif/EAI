@@ -22,21 +22,45 @@ export const ChatInterface = ({ sessionId }: { sessionId: string }) => {
   const [selectedCitation, setSelectedCitation] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    socket.emit('join-session', sessionId);
-  }, [sessionId]);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    socket.emit('join-session', sessionId);
+
+    socket.on('chat-history', (history: Message[]) => {
+      setMessages(history);
+    });
+
+    socket.on('chat-message', (message: Message) => {
+      setMessages(prev => [...prev, message]);
+    });
+
+    return () => {
+      socket.off('chat-history');
+      socket.off('chat-message');
+    };
+  }, [sessionId]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setAutoScroll(isAtBottom);
+  };
+
+  useEffect(() => {
+    if (scrollRef.current && autoScroll) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, autoScroll]);
 
   const handleSend = async () => {
     if (!input.trim()) return;
 
     const userMsg: Message = { role: 'user', content: input };
     setMessages(prev => [...prev, userMsg]);
+    socket.emit('new-message', { sessionId, message: userMsg });
+    
     setInput('');
     setIsTyping(true);
 
@@ -49,26 +73,37 @@ export const ChatInterface = ({ sessionId }: { sessionId: string }) => {
         source: pass1.source,
         isEvolving: true 
       };
+      
       setMessages(prev => [...prev, assistantMsg]);
+      socket.emit('new-message', { sessionId, message: assistantMsg });
 
       // Pass 2: Deep Layer (Gemini Pro) - Background Evolution
       const pass2Promise = getSovereignResponse(input, 'deep');
       
       pass2Promise.then(async (pass2) => {
+        const evolvedMsg: Message = {
+          role: 'assistant',
+          content: pass2.text,
+          source: pass2.source,
+          isEvolving: false,
+          citations: pass2.groundingMetadata?.groundingChunks
+        };
+
         setMessages(prev => {
           const newMessages = [...prev];
+          if (newMessages.length === 0) return prev;
+          
           const lastMsg = newMessages[newMessages.length - 1];
-          if (lastMsg.role === 'assistant') {
-            lastMsg.content = pass2.text;
-            lastMsg.source = pass2.source;
-            lastMsg.isEvolving = false;
-            lastMsg.citations = pass2.groundingMetadata?.groundingChunks;
+          if (lastMsg && lastMsg.role === 'assistant') {
+            newMessages[newMessages.length - 1] = evolvedMsg;
           }
           return newMessages;
         });
 
+        socket.emit('update-last-message', { sessionId, message: evolvedMsg });
+
         // Push to Canvas if it looks like a document/code
-        if (pass2.text.length > 200 || pass2.text.includes('```')) {
+        if ((pass2.text?.length || 0) > 200 || pass2.text?.includes('```')) {
           socket.emit('update-canvas', { sessionId, content: pass2.text });
         }
       });
@@ -82,7 +117,11 @@ export const ChatInterface = ({ sessionId }: { sessionId: string }) => {
 
   return (
     <div className="flex flex-col h-full bg-black/40 backdrop-blur-xl border-r border-white/5 relative">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div 
+        ref={scrollRef} 
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar"
+      >
         {messages.map((msg, i) => (
           <motion.div
             key={i}

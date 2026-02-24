@@ -5,20 +5,31 @@ import { Canvas } from './components/Canvas';
 import { AdBanner } from './components/AdBanner';
 
 export default function App() {
-  // Use a fixed session ID for demo purposes, or generate one
-  const [sessionId] = useState('default-session');
+  const [sessionId, setSessionId] = useState('session-' + Date.now());
+  const [sessions, setSessions] = useState<string[]>([sessionId]);
+
+  const createNewSession = () => {
+    const newId = 'session-' + Date.now();
+    setSessions(prev => [newId, ...prev]);
+    setSessionId(newId);
+  };
 
   return (
     <div className="flex h-screen w-screen bg-deep-black overflow-hidden font-sans">
-      <Sidebar />
+      <Sidebar 
+        sessions={sessions} 
+        activeSessionId={sessionId} 
+        onSelectSession={setSessionId}
+        onNewSession={createNewSession}
+      />
       
       <main className="flex-1 ml-16 grid grid-cols-1 lg:grid-cols-2 h-full">
         <div className="h-full border-r border-white/5">
-          <ChatInterface sessionId={sessionId} />
+          <ChatInterface key={sessionId} sessionId={sessionId} />
         </div>
         
         <div className="hidden lg:block h-full">
-          <Canvas sessionId={sessionId} />
+          <Canvas key={sessionId} sessionId={sessionId} />
         </div>
       </main>
 
